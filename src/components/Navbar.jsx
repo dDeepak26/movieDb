@@ -1,56 +1,69 @@
 import React, { useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useDispatch } from "react-redux";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { addGptMovieResult } from "../utils/gptSlice";
 import { options } from "../utils/constant";
 
 const Navbar = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1); // For pagination
+  const [isLoading, setIsLoading] = useState(false); // Loading state
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const searchText = useRef(null);
-  const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
 
-  const searchMoviesTMDB = async (movieName) => {
-    const data = await fetch(
-      "https://api.themoviedb.org/3/search/movie?query=" +
-        movieName +
-        "&include_adult=false&language=en-US&page=1",
-      options
-    );
-    const json = await data.json();
-    return json.results;
+  const searchMoviesTMDB = async (movieName, page = 1) => {
+    try {
+      setIsLoading(true);
+      const data = await fetch(
+        `https://api.themoviedb.org/3/search/movie?query=${movieName}&include_adult=false&language=en-US&page=${page}`,
+        options
+      );
+      const json = await data.json();
+      setIsLoading(false);
+      return json;
+    } catch (error) {
+      console.error("Error fetching movies:", error);
+      setIsLoading(false);
+    }
   };
 
   const handleSearch = async (e) => {
     e.preventDefault();
-    const prompt =
-      "Act as a movie Recommendation system and suggest some movies for the query : " +
-      searchText.current.value +
-      "only give me names of 5 movies, comma separated like the example result given ahead. Example Result: Gadar, Don, Sholay, Golmaal, Koi Mil Gaya";
-    const model = await genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    try {
-      const result = await model.generateContent([prompt]);
-      const gptMoviesArray = result.response.text().split(",");
-      const promiseArray = gptMoviesArray.map((movie) =>
-        searchMoviesTMDB(movie)
-      );
-      const tmdbResults = await Promise.all(promiseArray);
+    const movieName = searchText.current.value;
+    const results = await searchMoviesTMDB(movieName, 1);
+
+    if (results && results.results) {
       dispatch(
         addGptMovieResult({
-          moviesName: gptMoviesArray,
-          moviesResult: tmdbResults,
+          moviesName: [movieName],
+          moviesResult: [results.results],
         })
       );
+      setCurrentPage(1); // Reset pagination
       navigate("/searchResult");
-    } catch (error) {
-      console.error("Error generating content:", error);
+    }
+  };
+
+  // Function to load more movies for pagination
+  const loadMoreMovies = async () => {
+    const movieName = searchText.current.value;
+    const nextPage = currentPage + 1;
+    const results = await searchMoviesTMDB(movieName, nextPage);
+
+    if (results && results.results.length > 0) {
+      dispatch(
+        addGptMovieResult({
+          moviesName: [movieName],
+          moviesResult: (prevMovies) => [...prevMovies[0], ...results.results],
+        })
+      );
+      setCurrentPage(nextPage); // Update the current page
     }
   };
 
   return (
-    <nav className="bg-gray-700 text-white p-4">
+    <nav className="bg-gray-700 text-white p-4 sticky top-0 z-10">
       <div className="flex justify-between items-center">
         <div>
           <Link to="/" className="text-xl cursor-pointer">
